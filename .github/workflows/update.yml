@@ -2,17 +2,20 @@ name: Keiba Update
 
 on:
   schedule:
-    - cron: '0 * * * *'  # S'exécute toutes les heures
-  workflow_dispatch:      # Permet de lancer manuellement
+    - cron: '0 * * * *'  # Toutes les heures
+  workflow_dispatch:      # Bouton manuel
+
+permissions:
+  contents: write        # <--- TRÈS IMPORTANT : Donne au robot le droit de modifier les fichiers
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4 # Version à jour
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Version à jour
         with:
           python-version: '3.9'
           
@@ -30,5 +33,5 @@ jobs:
           git add index.html data.json
           mkdir -p archives
           git add archives/*.html || echo "Pas d'archive"
-          git commit -m "Mise à jour News & Archives" || exit 0
-          git push
+          # Le commit ne se fera que s'il y a des changements
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Mise à jour News & Archives" && git push)
