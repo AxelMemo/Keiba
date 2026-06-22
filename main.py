@@ -1,68 +1,66 @@
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import json
 import os
 from datetime import datetime, timedelta
 
-# On se fait passer pour Googlebot, le seul robot que les sites ne bloquent jamais
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-}
+# CONFIGURATION
+URL = "https://tospo-keiba.jp/news"
 
-# L'URL du Sitemap qui contient les derniers articles
-SITEMAP_URL = "https://tospo-keiba.jp/sitemap-posts-1.xml"
-
-def get_keiba_from_xml():
+def get_keiba_news():
     articles = {}
     jst_now = datetime.utcnow() + timedelta(hours=9)
     date_str = jst_now.strftime("%d/%m/%Y")
     ts_str = jst_now.strftime("%Y-%m-%d %H:%M:%S")
 
-    print(f"--- Lecture du Sitemap : {SITEMAP_URL} ---")
+    print(f"--- Tentative avec Cloudscraper sur {URL} ---")
+    
+    # On crée un scraper qui contourne les protections Cloudflare
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+
     try:
-        r = requests.get(SITEMAP_URL, headers=HEADERS, timeout=20)
-        # On utilise le parseur XML
-        soup = BeautifulSoup(r.text, "xml")
-        
-        # Dans un sitemap, chaque article est dans une balise <url>
-        items = soup.find_all("url")
-        print(f"Nombre d'entrées trouvées dans le Sitemap : {len(items)}")
+        response = scraper.get(URL, timeout=20)
+        # Si le site renvoie quand même une erreur
+        if response.status_code != 200:
+            print(f"Erreur du site : {response.status_code}")
+            return {}
 
-        for item in items:
-            link = item.find("loc").text if item.find("loc") else ""
-            
-            # On ne garde que les liens qui contiennent '/news/'
-            if "/news/" in link:
-                # Dans un sitemap, le titre n'est pas écrit. 
-                # On va le générer proprement à partir de l'URL pour le moment
-                # Exemple : /news/2024-une-course-incroyable -> "2024 une course incroyable"
-                slug = link.split("/")[-1]
-                titre = slug.replace("-", " ").capitalize()
-
-                if link not in articles:
-                    articles[link] = {
-                        "t": titre,
-                        "l": link,
-                        "dt": date_str,
-                        "ts": ts_str
-                    }
+        soup = BeautifulSoup(response.text, "html.parser")
         
-        # Si on a des liens, on essaie d'aller chercher le VRAI titre sur la page de l'article 
-        # (Seulement pour les 5 derniers pour ne pas être bloqué)
-        for url in list(articles.keys())[:5]:
-            try:
-                res = requests.get(url, headers=HEADERS, timeout=5)
-                s = BeautifulSoup(res.text, "html.parser")
-                real_title = s.find("h1").get_text(strip=True) if s.find("h1") else None
-                if real_title:
-                    articles[url]["t"] = real_title
-                    print(f"Titre récupéré : {real_title[:40]}...")
-            except:
-                continue
+        # On cible les articles. Tospo utilise souvent ces structures :
+        # Chaque article est dans un lien qui contient /news/
+        items = soup.find_all("a", href=True)
+        
+        for a in items:
+            href = a['href']
+            if "/news/" in href and not href.endswith("/news"):
+                if href.startswith('/'): href = "https://tospo-keiba.jp" + href
+                
+                # On cherche le titre dans les classes classiques de Tospo
+                title_tag = a.select_one(".p-news-list__title, .c-post-card__title, h3, p")
+                
+                if title_tag:
+                    titre = title_tag.get_text(strip=True)
+                    # On évite les textes trop courts (menus, tags)
+                    if len(titre) > 15:
+                        if href not in articles:
+                            articles[href] = {
+                                "t": titre,
+                                "l": href,
+                                "dt": date_str,
+                                "ts": ts_str
+                            }
 
     except Exception as e:
-        print(f"ERREUR : {e}")
+        print(f"Erreur Cloudscraper : {e}")
     
+    print(f"Articles trouvés : {len(articles)}")
     return articles
 
 def write_html(filename, data):
@@ -71,8 +69,8 @@ def write_html(filename, data):
     sorted_articles = sorted(data.values(), key=lambda x: x.get('ts', ''), reverse=True)
 
     with open(filename, "w", encoding="utf-8") as f:
-        f.write("<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>🏇 Keiba XML</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:15px;margin:0}.header{background:#1b5e20;color:white;padding:15px;border-radius:10px;margin-bottom:15px}.article{background:white;padding:15px;margin-bottom:10px;border-radius:8px;border-left:5px solid #ffc107;box-shadow:0 2px 4px rgba(0,0,0,0.1)}a{text-decoration:none;color:#1b5e20;font-weight:bold;font-size:1.1rem;display:block}.meta{font-size:0.75rem;color:#777;margin-top:8px}</style></head><body>")
-        f.write(f"<div class='header'><h1>🏇 Keiba News (Sitemap)</h1><p>Dernière mise à jour : {now_full} (JST)</p></div>")
+        f.write("<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>🏇 Keiba Cloud</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:15px;margin:0}.header{background:#d32f2f;color:white;padding:15px;border-radius:10px;margin-bottom:15px}.article{background:white;padding:15px;margin-bottom:10px;border-radius:8px;border-left:5px solid #d32f2f;box-shadow:0 2px 4px rgba(0,0,0,0.1)}a{text-decoration:none;color:#333;font-weight:bold;font-size:1.1rem;display:block}.meta{font-size:0.75rem;color:#777;margin-top:8px}</style></head><body>")
+        f.write(f"<div class='header'><h1>🏇 Keiba News</h1><p>Dernière mise à jour : {now_full} (JST)</p></div>")
         for a in sorted_articles:
             f.write(f"<div class='article'><a href='{a['l']}' target='_blank'>{a['t']}</a><div class='meta'>{a['dt']}</div></div>")
         f.write("</body></html>")
@@ -81,19 +79,24 @@ def main():
     db_file = "data.json"
     all_articles = json.load(open(db_file, "r", encoding="utf-8")) if os.path.exists(db_file) else {}
 
-    new_data = get_keiba_from_xml()
+    new_data = get_keiba_news()
     
     if new_data:
+        # Fusionner les nouveaux articles
         for url, info in new_data.items():
             if url not in all_articles:
                 all_articles[url] = info
         
+        # Garder seulement les 200 plus récents pour le JSON
+        all_articles = dict(list(all_articles.items())[-200:])
+        
         with open(db_file, "w", encoding="utf-8") as f:
             json.dump(all_articles, f, ensure_ascii=False, indent=2)
+            
         write_html("index.html", all_articles)
-        print(f"Succès : {len(all_articles)} articles au total.")
+        print("Mise à jour réussie.")
     else:
-        print("Échec : Aucun article trouvé dans le Sitemap.")
+        print("Aucun nouvel article trouvé.")
 
 if __name__ == "__main__":
     main()
