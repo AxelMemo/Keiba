@@ -2,26 +2,27 @@ name: Keiba Update
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Toutes les heures
-  workflow_dispatch:      # Bouton manuel
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write        # <--- TRÈS IMPORTANT : Donne au robot le droit de modifier les fichiers
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 # Version à jour
+      - uses: actions/checkout@v4
       
       - name: Set up Python
-        uses: actions/setup-python@v5 # Version à jour
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
           
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4
+          python -m pip install --upgrade pip
+          pip install cloudscraper beautifulsoup4
           
       - name: Run Scraper
         run: python main.py
@@ -31,7 +32,4 @@ jobs:
           git config --global user.name "KeibaBot"
           git config --global user.email "bot@keiba.com"
           git add index.html data.json
-          mkdir -p archives
-          git add archives/*.html || echo "Pas d'archive"
-          # Le commit ne se fera que s'il y a des changements
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Mise à jour News & Archives" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Keiba" && git push)
